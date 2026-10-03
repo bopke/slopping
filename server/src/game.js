@@ -20,6 +20,9 @@ export const DEFAULT_SETTINGS = {
   massDecay: 0.015,
   shardRate: 1, // shard spawn speed multiplier
   powerupMax: 4,
+  obstacles: true, // bumper pillars
+  meteorInterval: 70, // seconds between meteor showers (0 = off)
+  bounty: true, // killing the crowned leader pays extra
   rushInterval: 150, // seconds between Golden Rush events (0 = off)
 };
 
@@ -42,6 +45,11 @@ export class Game {
     this.nextId = 1;
     this.nextShard = 1;
     this.tickNo = 0;
+    this.tickMs = 0;
+    this.leader = null;
+    this.meteors = []; this.meteorNext = 70; this.meteorQueue = 0; this.meteorSpawnT = 0;
+    this.obstacles = [];
+    this.genObstacles();
     this.shardAdds = [];
     this.shardRems = [];
     this.events = [];
@@ -97,9 +105,7 @@ export class Game {
   }
 
   spawn(p) {
-    const a = Math.random() * Math.PI * 2;
-    const d = Math.sqrt(Math.random()) * this.voidRadius * 0.75;
-    p.x = Math.cos(a) * d; p.z = Math.sin(a) * d;
+    [p.x, p.z] = this.randomPoint(this.voidRadius * 0.75);
     p.vx = p.vz = 0;
     p.mass = START_MASS; p.score = 0; p.alive = true; p.prot = 2.5; p.dashT = 0;
     p.fx.speed = p.fx.shield = p.fx.magnet = 0; p.dashCd = 0; p.pulseCd = 0; p.peak = Math.max(p.peak, START_MASS);
@@ -108,17 +114,44 @@ export class Game {
 
   kill(victim, killer, how = 'eaten') {
     if (!victim.alive) return;
+    const wasLeader = victim === this.leader;
     victim.alive = false;
+    victim.streak = 0;
+    if (wasLeader) this.leader = null;
     victim.respawnAt = Date.now() + 2500;
     this.dropShards(victim.x, victim.z, victim.mass * 0.6);
     this.events.push({ k: 'death', id: victim.id, x: r2(victim.x), z: r2(victim.z), hue: victim.hue, r: r2(radiusOf(victim.mass)) });
     this.persist(victim, 1);
     if (killer && killer !== victim) {
       killer.kills++;
+      killer.streak = (killer.streak || 0) + 1;
+      if (wasLeader && this.settings.bounty) {
+        const b = Math.round(victim.mass * 0.25);
+        killer.mass = Math.min(MAX_MASS, killer.mass + b);
+        this.broadcast({ t: 'announce', text: `👑 ${killer.name} dethroned ${victim.name}! +${b} bounty` });
+      } else if ([3, 5, 8, 12].includes(killer.streak)) {
+        this.broadcast({ t: 'announce', text: `🔥 ${killer.name} is on a ${killer.streak}-kill streak!` });
+      }
       this.broadcast({ t: 'kill', killer: killer.name, victim: victim.name, how });
     } else {
       this.broadcast({ t: 'kill', killer: null, victim: victim.name, how });
     }
+  }
+
+  // ---------- obstacles ----------
+  genObstacles() {
+    this.obstacles = [];
+    if (!this.settings.obstacles) return;
+    const R = this.settings.arenaRadius;
+    const rings = [[0.45, 5], [0.0, 1]];
+    let id = 1;
+    for (const [f, n] of rings) {
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + (f ? 0.3 : 0);
+        this.obstacles.push({ id: id++, x: Math.cos(a) * R * f, z: Math.sin(a) * R * f, r: f ? 3.2 : 4.5 });
+      }
+    }
+    this.broadcast({ t: 'obstacles', list: this.obstacles.map((o) => [o.id, r2(o.x), r2(o.z), o.r]) });
   }
 
   // ---------- shards ----------
@@ -136,8 +169,12 @@ export class Game {
   }
 
   randomPoint(rad = this.voidRadius * 0.95) {
-    const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * rad;
-    return [Math.cos(a) * d, Math.sin(a) * d];
+    for (let t = 0; t < 6; t++) {
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * rad;
+      const x = Math.cos(a) * d, z = Math.sin(a) * d;
+      if (!this.obstacles.some((o) => (x - o.x) ** 2 + (z - o.z) ** 2 < (o.r + 1) ** 2)) return [x, z];
+    }
+    return [0, 20];
   }
 
   dropShards(x, z, mass) {
@@ -248,6 +285,7 @@ export class Game {
 
     this.updatePowerups(dt);
     this.updateRush(dt);
+    this.updateMeteors(dt);
 
     const list = [...this.players.values()];
     for (const p of list) {
@@ -285,7 +323,20 @@ export class Game {
       if (p.mass > p.peak) p.peak = p.mass;
     }
 
+    this.updateLeader(list);
     this.broadcastSnapshot(dt);
+  }
+
+  updateLeader(list) {
+    let best = null;
+    for (const p of list) if (p.alive && p.mass >= 60 && (!best || p.mass > best.mass)) best = p;
+    // hysteresis so the crown doesn't flicker
+    if (this.leader?.alive && best && this.leader !== best && this.leader.mass > best.mass * 0.92) best = this.leader;
+    if (best !== this.leader) {
+      this.leader = best;
+      const now = Date.now();
+      if (best && this.settings.bounty && now - (this.lastCrownMsg || 0) > 30000) { this.lastCrownMsg = now; this.system(`👑 ${best.name} is the new leader — kill them for a bounty!`); }
+    }
   }
 
   giveFx(p, type) {
@@ -307,6 +358,47 @@ export class Game {
       this.puTimer = 6 + Math.random() * 6;
       if (this.powerups.size < this.settings.powerupMax) { const [x, z] = this.randomPoint(this.voidRadius * 0.8); this.addPowerup(x, z); }
     }
+  }
+
+  // ---------- meteor shower ----------
+  startMeteors(n = 10) {
+    this.meteorQueue += n;
+    this.broadcast({ t: 'announce', text: '☄ METEOR SHOWER — watch the red circles!' });
+  }
+  updateMeteors(dt) {
+    const S = this.settings;
+    if (S.meteorInterval > 0 && this.meteorQueue <= 0 && this.meteors.length === 0) {
+      this.meteorNext -= dt;
+      if (this.meteorNext <= 0) { this.meteorNext = S.meteorInterval; this.startMeteors(); }
+    }
+    if (this.meteorQueue > 0 && (this.meteorSpawnT -= dt) <= 0) {
+      this.meteorSpawnT = 0.5; this.meteorQueue--;
+      // aim at a random living orb half of the time so showers are never harmless
+      const alive = [...this.players.values()].filter((p) => p.alive);
+      const tgt = alive.length && Math.random() < 0.5 ? alive[Math.floor(Math.random() * alive.length)] : null;
+      const [rx, rz] = this.randomPoint(this.voidRadius * 0.9);
+      const x = tgt ? tgt.x + (Math.random() - 0.5) * 6 : rx, z = tgt ? tgt.z + (Math.random() - 0.5) * 6 : rz;
+      this.meteors.push({ x, z, t: 2, r: 8 });
+      this.events.push({ k: 'meteor', x: r2(x), z: r2(z), t: 2, r: 8 });
+    }
+    for (const m of this.meteors) m.t -= dt;
+    const hit = this.meteors.filter((m) => m.t <= 0);
+    this.meteors = this.meteors.filter((m) => m.t > 0);
+    for (const m of hit) this.impact(m);
+  }
+  impact(m) {
+    this.events.push({ k: 'impact', x: r2(m.x), z: r2(m.z), r: m.r });
+    for (const p of this.players.values()) {
+      if (!p.alive || p.god || safe(p)) continue;
+      const dx = p.x - m.x, dz = p.z - m.z, d = Math.hypot(dx, dz);
+      if (d < m.r + radiusOf(p.mass)) {
+        const f = 28 * (1 - Math.min(1, d / (m.r + 2)) * 0.6);
+        p.vx += (dx / (d || 1)) * f; p.vz += (dz / (d || 1)) * f;
+        p.mass -= p.mass * 0.08 + 1;
+        if (p.mass < 4) this.kill(p, null, 'meteor');
+      }
+    }
+    for (let i = 0; i < 4; i++) this.addShard(m.x + (Math.random() - 0.5) * 5, m.z + (Math.random() - 0.5) * 5, 1);
   }
 
   startRush(secs = 20) {
@@ -353,6 +445,16 @@ export class Game {
       p.x = nx * (R - r); p.z = nz * (R - r);
       const vn = p.vx * nx + p.vz * nz;
       if (vn > 0) { p.vx -= 1.6 * vn * nx; p.vz -= 1.6 * vn * nz; }
+    }
+    // bumper pillars: bounce hard
+    for (const o of this.obstacles) {
+      const dx = p.x - o.x, dz = p.z - o.z, dd = Math.hypot(dx, dz) || 0.01, min = o.r + r;
+      if (dd < min) {
+        const nx = dx / dd, nz = dz / dd;
+        p.x = o.x + nx * min; p.z = o.z + nz * min;
+        const vn = p.vx * nx + p.vz * nz;
+        if (vn < 0) { p.vx -= 2.2 * vn * nx; p.vz -= 2.2 * vn * nz; if (vn < -12) this.events.push({ k: 'bump', x: r2(p.x), z: r2(p.z) }); }
+      }
     }
     // void damage
     if (this.voidRadius < R && d > this.voidRadius && !p.god && !safe(p)) {
@@ -475,24 +577,32 @@ export class Game {
 
   // ---------- snapshots ----------
   broadcastSnapshot(dt) {
-    const ps = [];
+    const r1 = (n) => Math.round(n * 10) / 10;
+    // Pre-serialise each entity once; every viewer then only gets the ones near them (area of interest).
+    const ents = [];
     for (const p of this.players.values()) {
       if (!p.alive) continue;
-      const flags = 1 | (p.dashT > 0 ? 2 : 0) | (p.god ? 4 : 0) | (p.frozen ? 8 : 0) | (safe(p) ? 16 : 0) | (p.fx.speed > 0 ? 32 : 0) | (p.fx.magnet > 0 ? 64 : 0);
-      ps.push([p.id, r2(p.x), r2(p.z), r2(p.mass), r2(p.vx), r2(p.vz), flags]);
+      const flags = 1 | (p.dashT > 0 ? 2 : 0) | (p.god ? 4 : 0) | (p.frozen ? 8 : 0) | (safe(p) ? 16 : 0) | (p.fx.speed > 0 ? 32 : 0) | (p.fx.magnet > 0 ? 64 : 0) | (p === this.leader ? 128 : 0);
+      ents.push({ p, s: `[${p.id},${r2(p.x)},${r2(p.z)},${r1(p.mass)},${r1(p.vx)},${r1(p.vz)},${flags}]` });
     }
-    const msg = { t: 's', n: this.tickNo, p: ps, v: r2(this.voidRadius), vp: this.void.phase };
-    if (this.shardAdds.length) msg.sa = this.shardAdds;
-    if (this.shardRems.length) msg.sr = this.shardRems;
-    if (this.puAdds.length) msg.pa = this.puAdds;
-    if (this.puRems.length) msg.pr = this.puRems;
-    if (this.events.length) msg.ev = this.events;
+    const tail = [`"v":${r2(this.voidRadius)},"vp":"${this.void.phase}"`];
+    if (this.shardAdds.length) tail.push(`"sa":${JSON.stringify(this.shardAdds)}`);
+    if (this.shardRems.length) tail.push(`"sr":${JSON.stringify(this.shardRems)}`);
+    if (this.puAdds.length) tail.push(`"pa":${JSON.stringify(this.puAdds)}`);
+    if (this.puRems.length) tail.push(`"pr":${JSON.stringify(this.puRems)}`);
+    if (this.events.length) tail.push(`"ev":${JSON.stringify(this.events)}`);
+    const tailStr = tail.join(',');
     this.puAdds = []; this.puRems = []; this.shardAdds = []; this.shardRems = []; this.events = [];
-    const s = JSON.stringify(msg);
     const doYou = this.tickNo % 4 === 0;
     for (const p of this.players.values()) {
       if (p.bot) continue;
-      this.send(p, s);
+      // view range grows with the client's camera zoom (mass)
+      const range = Math.max(80, 55 * (1 + Math.sqrt(p.mass) * 0.06) + 10), r2r = range * range;
+      const parts = [];
+      for (const e of ents) {
+        if (e.p === p || !p.alive || (e.p.x - p.x) ** 2 + (e.p.z - p.z) ** 2 < r2r) parts.push(e.s);
+      }
+      this.send(p, `{"t":"s","n":${this.tickNo},"p":[${parts.join(',')}],${tailStr}}`);
       if (doYou) {
         this.send(p, {
           t: 'you', alive: p.alive, mass: r2(p.mass), score: p.score,
@@ -518,6 +628,7 @@ export class Game {
       settings: this.settings, tickRate: config.tickRate,
       players: [...this.players.values()].map((o) => this.meta(o)),
       shards: [...this.shards.values()].map((s) => [s.id, r2(s.x), r2(s.z), s.k]),
+      obstacles: this.obstacles.map((o) => [o.id, r2(o.x), r2(o.z), o.r]),
       powerups: [...this.powerups.values()].map((u) => [u.id, r2(u.x), r2(u.z), u.type]),
       hue: p.hue,
       hall: Accounts.top(),

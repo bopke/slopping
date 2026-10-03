@@ -75,7 +75,7 @@ net.on('welcome', (m) => {
   $('#login').hidden = true; $('#hud').hidden = false;
   world.selfId = m.id; settings = m.settings; arena = settings.arenaRadius; world.setArena(arena);
   names.clear(); m.players.forEach((p) => { names.set(p.id, p); world.addPlayer(p); });
-  world.setShards(m.shards); world.setPowerups(m.powerups);
+  world.setShards(m.shards); world.setPowerups(m.powerups); world.setObstacles(m.obstacles || []);
   buildColors(m.hue ?? names.get(m.id)?.hue);
   $('#myName').textContent = m.name;
   setAdmin(m.admin);
@@ -108,6 +108,11 @@ const nearSelf = (x, z) => me && Math.hypot(x - me.x, z - me.z) < 45;
 function onEvent(e) {
   const mine = e.id === world.selfId;
   switch (e.k) {
+    case 'meteor': world.addWarning(e.x, e.z, e.t, e.r); break;
+    case 'impact':
+      world.burst(e.x, 1, e.z, 0xff7a3d, 90, 18, 1, 1); world.burst(e.x, 1, e.z, 0xffd23d, 40, 10, 0.7, 0.8);
+      if (nearSelf(e.x, e.z)) { world.shake += 2.2; sfx.pulse(); }
+      break;
     case 'pu': if (mine) { sfx.spawn(); world.shake += 0.5; } break;
     case 'pick': if (mine) sfx.pick(e.sk); break;
     case 'dash': if (mine) sfx.dash(); break;
@@ -126,10 +131,11 @@ function onEvent(e) {
     case 'spawn': world.burst(e.x, 0.5, e.z, 0x35f0ff, 30, 6, 0.5, 0.8); if (mine) sfx.spawn(); break;
   }
 }
+net.on('obstacles', (m) => world.setObstacles(m.list));
 net.on('meta', (m) => { names.set(m.p.id, m.p); world.setHue(m.p.id, m.p.hue); });
 const FX = { speed: ['⚡ SPEED', '#b6ff3d'], shield: ['🛡 SHIELD', '#35f0ff'], magnet: ['🧲 MAGNET', '#b44dff'] };
 net.on('you', (m) => {
-  you = m; $('#dead').hidden = m.alive;
+  you = m; $('#dead').hidden = m.alive; if (m.alive) world.spectateId = null; else if (!world.spectateId || !world.players.get(world.spectateId)?.alive) cycleSpectate(1);
   $('#fx').textContent = '';
   for (const [k, v] of Object.entries(m.fx || {})) if (v > 0) {
     const d = document.createElement('div'); d.style.borderColor = FX[k][1]; d.style.color = FX[k][1]; d.textContent = `${FX[k][0]} ${v.toFixed(0)}s`; $('#fx').appendChild(d);
@@ -145,6 +151,13 @@ function buildColors(cur) {
   }
 }
 $('#colorBtn').onclick = () => { $('#colors').hidden = !$('#colors').hidden; };
+function cycleSpectate(dir) {
+  const alive = [...world.players.values()].filter((p) => p.alive && p.meta.id !== world.selfId).sort((a, b) => b.mass - a.mass);
+  if (!alive.length) return;
+  const i = alive.findIndex((p) => p.meta.id === world.spectateId);
+  world.spectateId = alive[(i + dir + alive.length) % alive.length].meta.id;
+  $('#dead').textContent = `YOU WERE DEVOURED — spectating ${world.players.get(world.spectateId).meta.name} (click to switch)`;
+}
 net.on('lb', (m) => {
   const list = $('#lbList'); list.textContent = '';
   m.lb.forEach(([id, name, mass], i) => {
@@ -157,7 +170,7 @@ net.on('lb', (m) => {
   $('#online').textContent = `${m.online} online`;
 });
 net.on('kill', (m) => {
-  const d = document.createElement('div'); d.append(...(m.killer ? [Object.assign(document.createElement('b'), { textContent: m.killer }), ` devoured ${m.victim}`] : [`${m.victim} ${m.how === 'void' ? 'was swallowed by the void' : 'died'}`]));
+  const d = document.createElement('div'); d.append(...(m.killer ? [Object.assign(document.createElement('b'), { textContent: m.killer }), ` devoured ${m.victim}`] : [`${m.victim} ${m.how === 'void' ? 'was swallowed by the void' : how === 'meteor' ? 'was hit by a meteor' : 'died'}`]));
   $('#feed').appendChild(d); setTimeout(() => d.remove(), 6000);
   while ($('#feed').children.length > 5) $('#feed').firstChild.remove();
 });
@@ -200,7 +213,7 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); if (e.key === 'Tab') $('#profile').hidden = true; });
 addEventListener('blur', () => { keys.clear(); mouseDown = false; });
-$('#scene').addEventListener('pointerdown', (e) => { sfx.unlock(); if (e.pointerType === 'touch') return; if (e.button === 2) { net.send({ t: 'pulse' }); return; } mouseDown = true; mouseX = e.clientX; mouseY = e.clientY; });
+$('#scene').addEventListener('pointerdown', (e) => { sfx.unlock(); if (!you.alive) cycleSpectate(1); if (e.pointerType === 'touch') return; if (e.button === 2) { net.send({ t: 'pulse' }); return; } mouseDown = true; mouseX = e.clientX; mouseY = e.clientY; });
 addEventListener('pointermove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
 addEventListener('pointerup', () => (mouseDown = false));
 $('#scene').addEventListener('contextmenu', (e) => e.preventDefault());

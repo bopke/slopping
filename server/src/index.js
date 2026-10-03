@@ -145,7 +145,9 @@ setInterval(() => {
   const now = performance.now();
   const dt = Math.min(0.1, (now - prev) / 1000);
   prev = now;
+  const t0 = performance.now();
   try { game.tick(dt); } catch (e) { console.error('tick error', e); }
+  game.tickMs = game.tickMs * 0.95 + (performance.now() - t0) * 0.05;
 }, 1000 / config.tickRate);
 
 http.listen(config.port, () => console.log(`[shardfall] listening on :${config.port}`));

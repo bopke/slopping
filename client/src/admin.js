@@ -16,6 +16,7 @@ export class AdminPanel {
     $('#aShGold').onclick = () => net.admin('spawnshards', { count: +v('#aShN'), target: this.target, gold: true });
     for (const b of this.el.querySelectorAll('[data-pu]')) b.onclick = () => this.targetCmd('powerup', { type: b.dataset.pu });
     for (const b of this.el.querySelectorAll('[data-pup]')) b.onclick = () => net.admin('powerup', { type: b.dataset.pup });
+    $('#aMeteors').onclick = () => net.admin('meteors', { count: 12 });
     $('#aRush').onclick = () => net.admin('rush', { action: 'start' });
     $('#aRushEnd').onclick = () => net.admin('rush', { action: 'end' });
     $('#aVoid').onclick = () => net.admin('void', { action: 'start' });
@@ -49,7 +50,7 @@ export class AdminPanel {
     this.state = st;
     if (!this.open) return;
     const s = st.stats;
-    $('#aStats').textContent = `${s.players} players · ${s.bots} bots · ${s.shards} shards · void:${s.void} (${s.voidRadius}) · up ${Math.floor(s.uptime / 60)}m`;
+    $('#aStats').textContent = `${s.players} players · ${s.bots} bots · ${s.shards} shards · tick ${s.tickMs}ms · void:${s.void} (${s.voidRadius}) · up ${Math.floor(s.uptime / 60)}m`;
     const body = $('#aTable tbody'); body.textContent = '';
     for (const p of st.players) {
       const tr = document.createElement('tr');

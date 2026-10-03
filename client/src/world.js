@@ -60,6 +60,9 @@ export class World {
     this.buildShards();
     this.buildParticles();
     this.powerups = new Map();
+    this.obstacleMeshes = [];
+    this.warnings = [];
+    this.spectateId = null;
 
     this.players = new Map(); // id -> entity
     this.selfId = null;
@@ -123,6 +126,38 @@ export class World {
     this.shardMesh.count = i;
     this.shardMesh.instanceMatrix.needsUpdate = true;
     if (this.shardMesh.instanceColor) this.shardMesh.instanceColor.needsUpdate = true;
+  }
+
+  // ---------- meteors ----------
+  addWarning(x, z, t, r) {
+    const m = new THREE.Mesh(new THREE.RingGeometry(r - 0.5, r, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff3355, transparent: true, opacity: 0.8, toneMapped: false, depthWrite: false }));
+    const fill = new THREE.Mesh(new THREE.CircleGeometry(r, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff2244, transparent: true, opacity: 0.12, depthWrite: false }));
+    m.add(fill); m.position.set(x, 0.08, z); this.scene.add(m);
+    this.warnings.push({ m, x, z, t, T: t, r, rock: null });
+  }
+  updateWarnings(dt) {
+    for (const w of this.warnings) {
+      w.t -= dt;
+      const k = Math.max(0, w.t / w.T);
+      w.m.material.opacity = 0.4 + 0.5 * Math.abs(Math.sin(w.t * 12));
+      w.m.scale.setScalar(1.0);
+      if (!w.rock) { w.rock = new THREE.Mesh(new THREE.IcosahedronGeometry(1.6, 0), new THREE.MeshBasicMaterial({ color: 0xff7a3d, toneMapped: false })); this.scene.add(w.rock); }
+      w.rock.position.set(w.x, 4 + k * k * 60, w.z); w.rock.rotation.x += dt * 4;
+      if (w.t <= 0) { this.scene.remove(w.m, w.rock); w.dead = true; }
+    }
+    this.warnings = this.warnings.filter((w) => !w.dead);
+  }
+
+  // ---------- obstacles ----------
+  setObstacles(list) {
+    for (const m of this.obstacleMeshes) this.scene.remove(m);
+    this.obstacleMeshes = list.map(([id, x, z, r]) => {
+      const g = new THREE.Group();
+      g.add(new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.08, 3.2, 40), new THREE.MeshStandardMaterial({ color: 0x14183a, emissive: 0x2a3cff, emissiveIntensity: 0.35, roughness: 0.4, metalness: 0.6 })));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.14, 8, 64), new THREE.MeshBasicMaterial({ color: 0x5b7cff, toneMapped: false }));
+      ring.rotation.x = Math.PI / 2; ring.position.y = 1.7; g.add(ring);
+      g.position.set(x, 1.6, z); this.scene.add(g); return g;
+    });
   }
 
   // ---------- powerups ----------
@@ -207,12 +242,14 @@ export class World {
     shield.visible = false;
     const shadow = new THREE.Mesh(new THREE.CircleGeometry(1.1, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false }));
     shadow.position.y = 0.02;
-    group.add(body, core, shield); this.scene.add(group, shadow);
+    const crown = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.12, 8, 5), new THREE.MeshBasicMaterial({ color: 0xffd23d, toneMapped: false }));
+    crown.position.y = 1.5; crown.rotation.x = Math.PI / 2; crown.visible = false;
+    group.add(body, core, shield, crown); this.scene.add(group, shadow);
     const el = document.createElement('div');
     el.className = 'label' + (meta.admin ? ' admin' : '') + (meta.bot ? ' bot' : '');
     el.textContent = meta.name; el.style.color = `hsl(${meta.hue} 90% 75%)`;
     this.labels.appendChild(el);
-    this.players.set(meta.id, { meta, color, group, body, core, shield, shadow, el, buf: [], alive: false, mass: 10, x: 0, z: 0, vx: 0, vz: 0, flags: 0, trail: 0 });
+    this.players.set(meta.id, { meta, color, group, body, core, shield, crown, shadow, el, buf: [], alive: false, mass: 10, x: 0, z: 0, vx: 0, vz: 0, flags: 0, trail: 0 });
   }
   removePlayer(id) {
     const p = this.players.get(id); if (!p) return;
@@ -263,6 +300,7 @@ export class World {
     if (this.voidTarget !== undefined) { this.voidR += (this.voidTarget - this.voidR) * (1 - Math.exp(-dt * 10)); this.floorMat.uniforms.uV.value = this.voidR; }
     this.updateShards(t);
     this.updateParticles(dt);
+    this.updateWarnings(dt);
     for (const [id, u] of this.powerups) { u.g.position.y = 1.6 + Math.sin(t * 2 + id) * 0.3; u.g.rotation.y = t * 1.5; u.ring.rotation.z = t * 2; }
     const now = performance.now() / 1000;
     const camP = this.camera.position;
@@ -281,6 +319,7 @@ export class World {
       p.group.position.set(x, p.r, z); p.group.scale.setScalar(p.r * pulse);
       p.shadow.position.set(x, 0.03, z); p.shadow.scale.setScalar(p.r * 1.15);
       p.body.material.emissiveIntensity = (p.flags & 2 ? 1.8 : 0.55);
+      p.crown.visible = !!(p.flags & 128); p.crown.rotation.y += dt * 2;
       p.shield.visible = !!(p.flags & 16) || !!(p.flags & 4);
       p.shield.material.color.set(p.flags & 4 ? 0xffd23d : 0x99ffff);
       p.group.rotation.y += dt;
@@ -300,7 +339,8 @@ export class World {
     }
 
     // camera follows self
-    if (me) { this.camTarget.lerp(new THREE.Vector3(me.x, 0, me.z), 1 - Math.exp(-dt * 6)); this.camZoom += ((1 + Math.sqrt(me.mass) * 0.06) - this.camZoom) * (1 - Math.exp(-dt * 2)); }
+    const focus = me || (this.spectateId && this.players.get(this.spectateId)?.alive ? this.players.get(this.spectateId) : null);
+    if (focus) { const mm = focus; this.camTarget.lerp(new THREE.Vector3(mm.x, 0, mm.z), 1 - Math.exp(-dt * 6)); this.camZoom += ((1 + Math.sqrt(mm.mass) * 0.06) - this.camZoom) * (1 - Math.exp(-dt * 2)); }
     const h = 30 * this.camZoom, back = 18 * this.camZoom;
     this.shake *= Math.exp(-dt * 6);
     camP.set(this.camTarget.x + (Math.random() - 0.5) * this.shake, h, this.camTarget.z + back + (Math.random() - 0.5) * this.shake);

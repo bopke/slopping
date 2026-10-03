@@ -44,7 +44,8 @@ try {
   a2.send({ t: 'input', x: 1, z: 0 });
   await sleep(600);
   const snap = [...a2.msgs].reverse().find((m) => m.t === 's');
-  assert.ok(snap.p.length >= 2, 'bots + player present');
+  assert.ok(snap.p.length >= 1, 'own orb present in snapshot');
+  assert.ok(w.players.length >= 2, 'bots fill the arena');
 
   // non-admin can't use admin commands
   a2.send({ t: 'admin', cmd: 'clearshards' });

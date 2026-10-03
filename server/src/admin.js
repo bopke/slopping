@@ -7,7 +7,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const SETTING_LIMITS = {
   arenaRadius: [30, 200], maxShards: [0, 600], speed: [3, 40], dashPower: [0, 120],
   dashCooldown: [0, 30], pulseCooldown: [0, 60], absorbRatio: [1.01, 5], pvp: 'bool',
-  voidEnabled: 'bool', powerupMax: [0, 20], rushInterval: [0, 3600], voidInterval: [10, 3600], minPlayers: [0, 40], massDecay: [0, 0.2], shardRate: [0, 20],
+  voidEnabled: 'bool', obstacles: 'bool', bounty: 'bool', powerupMax: [0, 20], meteorInterval: [0, 3600], rushInterval: [0, 3600], voidInterval: [10, 3600], minPlayers: [0, 40], massDecay: [0, 0.2], shardRate: [0, 20],
 };
 
 export function adminState(game, startedAt) {
@@ -21,7 +21,7 @@ export function adminState(game, startedAt) {
     stats: {
       players: players.filter((p) => !p.bot).length, bots: players.filter((p) => p.bot).length,
       shards: game.shards.size, uptime: Math.round((Date.now() - startedAt) / 1000),
-      void: game.void.phase, voidRadius: Math.round(game.voidRadius),
+      tickMs: Math.round(game.tickMs * 100) / 100, void: game.void.phase, voidRadius: Math.round(game.voidRadius),
     },
   };
 }
@@ -125,6 +125,8 @@ export function runAdmin(game, admin, msg, hooks) {
       else { const [x, z] = game.randomPoint(); game.addPowerup(x, z, type); reply(true, `${type} pickup spawned`); }
       break;
     }
+    case 'meteors':
+      game.startMeteors(clamp(Math.floor(num(msg.count, 10)), 1, 60)); reply(true, 'Meteor shower started'); break;
     case 'rush':
       if (msg.action === 'end') game.rush.t = 0.01; else game.startRush(clamp(num(msg.secs, 20), 5, 120));
       reply(true, 'Golden Rush toggled'); break;
@@ -137,6 +139,7 @@ export function runAdmin(game, admin, msg, hooks) {
       const v = lim === 'bool' ? !!msg.value : clamp(num(msg.value, game.settings[msg.key]), lim[0], lim[1]);
       game.settings[msg.key] = v;
       if (msg.key === 'arenaRadius') game.voidRadius = Math.min(game.voidRadius, v);
+      if (msg.key === 'arenaRadius' || msg.key === 'obstacles') game.genObstacles();
       game.broadcast({ t: 'settings', settings: game.settings });
       reply(true, `${msg.key} = ${v}`); break;
     }

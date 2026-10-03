@@ -9,6 +9,7 @@ A real-time multiplayer 3D arena in the browser. You are a glowing orb: collect 
 * **Admin** – the nickname `bopke` (configurable) gets an in-game **ADMIN** panel.
 
 ## Features
+* Bumper pillars, a crowned leader with a **bounty**, kill-streak shout-outs, ☄ **meteor showers**, spectating after death
 * Power-ups (⚡ speed, 🛡 shield, 🧲 magnet), random **Golden Rush** gold-shard storms, the shrinking **Void**
 * Persistent accounts with best mass / kills / deaths, hall of fame on the login screen, `Tab` = your profile
 * Pick your orb color (🎨, saved to your account), remember-me sessions and automatic reconnect
@@ -22,7 +23,8 @@ Touch devices get a joystick and buttons.
 ```bash
 cd server && npm install && ADMIN_PASSWORD=secret npm start      # ws://localhost:8080
 cd client && npm install && npm run dev                          # http://localhost:5173 (talks to :8080)
-cd server && npm test                                            # end-to-end smoke test
+cd server && npm test                                            # unit (game rules) + end-to-end smoke test
+cd server && node test/load.mjs 40 12                           # load test: N fake players, prints tick cost + bandwidth
 ```
 
 ## Deploy
