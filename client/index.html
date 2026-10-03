@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Shardfall Arena</title>
+  <meta name="description" content="Multiplayer 3D orb arena in your browser. Collect shards, grow, devour." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%2335f0ff'/></svg>" />
+  <script src="./config.js"></script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <div id="labels"></div>
+
+  <!-- Login -->
+  <div id="login" class="overlay">
+    <form id="loginForm" class="card" autocomplete="off">
+      <h1>SHARD<span>FALL</span></h1>
+      <p class="tag">devour the arena. outgrow everyone.</p>
+      <div id="step1">
+        <label>Nickname</label>
+        <input id="nick" maxlength="16" placeholder="your nickname" autofocus spellcheck="false" />
+        <button type="submit" id="go1">Continue</button>
+      </div>
+      <div id="step2" hidden>
+        <p id="pwHint" class="hint"></p>
+        <label>Password</label>
+        <input id="pw" type="password" maxlength="72" placeholder="password" />
+        <div class="row">
+          <button type="button" id="back" class="ghost">Back</button>
+          <button type="submit" id="go2">Play</button>
+        </div>
+      </div>
+      <p id="authErr" class="err"></p>
+      <p id="conn" class="hint">connecting…</p>
+    </form>
+    <div class="help">
+      <b>WASD / arrows / hold mouse</b> move · <b>Space</b> dash · <b>E / right click</b> pulse · <b>Enter</b> chat · <b>M</b> mute
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud" hidden>
+    <div id="lb" class="panel"><h3>Leaderboard</h3><ol id="lbList"></ol><div id="online"></div></div>
+    <div id="me" class="panel">
+      <div><span id="myName"></span> <small id="myRank"></small></div>
+      <div class="big"><span id="myMass">10</span><small> mass</small></div>
+      <div class="bars">
+        <div class="bar"><i id="dashBar"></i><span>DASH · space</span></div>
+        <div class="bar"><i id="pulseBar" class="alt"></i><span>PULSE · E</span></div>
+      </div>
+    </div>
+    <canvas id="minimap" width="150" height="150"></canvas>
+    <div id="feed"></div>
+    <div id="chat">
+      <div id="chatLog"></div>
+      <input id="chatInput" maxlength="140" placeholder="press Enter to chat" autocomplete="off" />
+    </div>
+    <div id="banner"></div>
+    <div id="dead" hidden>YOU WERE DEVOURED</div>
+    <button id="adminBtn" hidden>ADMIN</button>
+    <div id="stick" hidden><i></i></div>
+    <div id="touchBtns" hidden><button id="tDash">DASH</button><button id="tPulse">PULSE</button></div>
+  </div>
+
+  <!-- Admin panel -->
+  <div id="admin" class="panel" hidden>
+    <div class="ahead">
+      <b>⚙ ADMIN PANEL</b><span id="aStats"></span>
+      <nav>
+        <button data-tab="players" class="on">Players</button>
+        <button data-tab="server">World</button>
+        <button data-tab="accounts">Accounts</button>
+      </nav>
+      <button id="aClose">✕</button>
+    </div>
+    <div id="aLog"></div>
+
+    <section data-tab="players">
+      <div class="scroll"><table id="aTable"><thead><tr><th>Name</th><th>Mass</th><th>Kills</th><th>State</th><th>IP</th></tr></thead><tbody></tbody></table></div>
+      <div class="tools">
+        <div>Target: <b id="aTarget">— click a row —</b></div>
+        <div class="btns">
+          <button data-cmd="kick">Kick</button><button data-cmd="ban">Ban</button>
+          <button data-cmd="mute">Mute</button><button data-cmd="unmute">Unmute</button>
+          <button data-cmd="kill">Kill</button><button data-cmd="respawn">Respawn</button>
+          <button data-cmd="god">God</button><button data-cmd="freeze">Freeze</button>
+          <button data-cmd="launch">Launch</button><button data-cmd="resetcd">Reset CD</button>
+        </div>
+        <div class="f"><label>Set mass</label><input id="aMass" type="number" value="100" /><button id="aMassGo">Set</button></div>
+        <div class="f"><label>Teleport</label><input id="aTx" type="number" placeholder="x" /><input id="aTz" type="number" placeholder="z" /><button id="aTpGo">Go</button></div>
+        <div class="f"><label>Teleport to player</label><input id="aTo" placeholder="nickname" /><button id="aToGo">Go</button></div>
+        <div class="f"><label>Shards at target</label><input id="aShN" type="number" value="30" /><button id="aShGo">Spawn</button><button id="aShGold">Gold</button></div>
+      </div>
+    </section>
+
+    <section data-tab="server" hidden>
+      <div class="btns">
+        <button id="aVoid">Start Void</button><button id="aVoidEnd">End Void</button>
+        <button id="aClear">Clear shards</button><button id="aSpawn">+50 shards</button>
+        <button id="aResetSet">Reset settings</button><button id="aResetStats" class="danger">Reset all stats</button>
+      </div>
+      <div class="f"><label>Announce</label><input id="aMsg" placeholder="message to everyone" /><button id="aMsgGo">Send</button></div>
+      <h4>Game settings (live)</h4>
+      <div id="aSettings"></div>
+    </section>
+
+    <section data-tab="accounts" hidden>
+      <div class="f"><button id="aAccLoad">Reload accounts</button><input id="aAccQ" placeholder="filter…" /></div>
+      <div class="scroll"><table id="aAccTable"><thead><tr><th>Name</th><th>Best</th><th>K/D</th><th>Flags</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
+    </section>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
