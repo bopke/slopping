@@ -59,6 +59,7 @@ export class World {
     this.buildStars();
     this.buildShards();
     this.buildParticles();
+    this.powerups = new Map();
 
     this.players = new Map(); // id -> entity
     this.selfId = null;
@@ -121,6 +122,31 @@ export class World {
     this.shardMesh.count = i;
     this.shardMesh.instanceMatrix.needsUpdate = true;
     if (this.shardMesh.instanceColor) this.shardMesh.instanceColor.needsUpdate = true;
+  }
+
+  // ---------- powerups ----------
+  static PU_COLOR = { speed: 0xb6ff3d, shield: 0x35f0ff, magnet: 0xb44dff };
+  addPowerup([id, x, z, type]) {
+    if (this.powerups.has(id)) return;
+    const c = World.PU_COLOR[type] ?? 0xffffff;
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.9, 0), new THREE.MeshBasicMaterial({ color: c, toneMapped: false })));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.08, 8, 40), new THREE.MeshBasicMaterial({ color: c, toneMapped: false }));
+    ring.rotation.x = Math.PI / 2; g.add(ring);
+    g.position.set(x, 1.6, z); this.scene.add(g);
+    this.powerups.set(id, { g, ring, x, z, color: c });
+  }
+  removePowerup(id) {
+    const u = this.powerups.get(id); if (!u) return;
+    this.burst(u.x, 1.5, u.z, u.color, 30, 9, 0.7, 0.9);
+    this.scene.remove(u.g); this.powerups.delete(id);
+  }
+  setPowerups(list) { for (const id of [...this.powerups.keys()]) this.removePowerup(id); list.forEach((u) => this.addPowerup(u)); }
+  setHue(id, hue) {
+    const p = this.players.get(id); if (!p) return;
+    p.meta.hue = hue; p.color.setHSL(hue / 360, 0.85, 0.55);
+    p.body.material.color.copy(p.color); p.body.material.emissive.copy(p.color);
+    p.el.style.color = `hsl(${hue} 90% 75%)`;
   }
 
   // ---------- particles ----------
@@ -236,6 +262,7 @@ export class World {
     if (this.voidTarget !== undefined) { this.voidR += (this.voidTarget - this.voidR) * (1 - Math.exp(-dt * 10)); this.floorMat.uniforms.uV.value = this.voidR; }
     this.updateShards(t);
     this.updateParticles(dt);
+    for (const [id, u] of this.powerups) { u.g.position.y = 1.6 + Math.sin(t * 2 + id) * 0.3; u.g.rotation.y = t * 1.5; u.ring.rotation.z = t * 2; }
     const now = performance.now() / 1000;
     const camP = this.camera.position;
     let me = null;
@@ -256,12 +283,13 @@ export class World {
       p.shield.visible = !!(p.flags & 16) || !!(p.flags & 4);
       p.shield.material.color.set(p.flags & 4 ? 0xffd23d : 0x99ffff);
       p.group.rotation.y += dt;
+      if (p.flags & 64 && Math.random() < dt * 20) this.burst(x + (Math.random() - 0.5) * 14, 0.5, z + (Math.random() - 0.5) * 14, 0xb44dff, 1, 0.2, 0.5, 0.5);
       // trail
       p.trail -= dt;
       const sp = Math.hypot(p.vx, p.vz);
       if (p.trail <= 0 && sp > 2) {
-        p.trail = p.flags & 2 ? 0.01 : 0.05;
-        this.burst(x - (p.vx / sp) * p.r, p.r * 0.5, z - (p.vz / sp) * p.r, p.color.getHex(), p.flags & 2 ? 3 : 1, 0.6, p.r * 0.45, 0.5);
+        p.trail = p.flags & 2 ? 0.01 : p.flags & 32 ? 0.015 : 0.05;
+        this.burst(x - (p.vx / sp) * p.r, p.r * 0.5, z - (p.vz / sp) * p.r, p.flags & 32 ? 0xb6ff3d : p.color.getHex(), p.flags & 2 ? 3 : p.flags & 32 ? 2 : 1, 0.6, p.r * 0.45, 0.5);
       }
       if (self) me = p;
       // label

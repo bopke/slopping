@@ -17,7 +17,13 @@ nick.value = localStorage.getItem('nick') || '';
 let exists = false, pending = false;
 const setErr = (t) => (err.textContent = t || '');
 
-net.connect().then(() => { $('#conn').textContent = 'connected'; setTimeout(() => ($('#conn').textContent = ''), 1200); })
+net.on('hall', (m) => {
+  const h = $('#hall'); h.textContent = '';
+  if (!m.hall.length) return;
+  const t = document.createElement('div'); t.className = 'hallT'; t.textContent = 'HALL OF FAME'; h.appendChild(t);
+  m.hall.forEach((e, i) => { const d = document.createElement('div'); d.textContent = `${i + 1}. ${e.name} — ${Math.round(e.best_mass)} mass, ${e.kills} kills`; h.appendChild(d); });
+});
+net.connect().then(() => { net.send({ t: 'hall' }); $('#conn').textContent = 'connected'; setTimeout(() => ($('#conn').textContent = ''), 1200); })
   .catch(() => { $('#conn').textContent = 'Cannot reach the game server. Is it running?'; });
 net.on('close', () => { if (!$('#hud').hidden) { $('#login').hidden = false; $('#hud').hidden = true; $('#step1').hidden = false; $('#step2').hidden = true; setErr('Disconnected from server — reload to reconnect'); $('#go1').disabled = true; } });
 
@@ -50,7 +56,8 @@ net.on('welcome', (m) => {
   $('#login').hidden = true; $('#hud').hidden = false;
   world.selfId = m.id; settings = m.settings; arena = settings.arenaRadius; world.setArena(arena);
   names.clear(); m.players.forEach((p) => { names.set(p.id, p); world.addPlayer(p); });
-  world.setShards(m.shards);
+  world.setShards(m.shards); world.setPowerups(m.powerups);
+  buildColors(m.hue ?? names.get(m.id)?.hue);
   $('#myName').textContent = m.name;
   setAdmin(m.admin);
   addChat(null, `Welcome, ${m.name}! Grow by collecting shards. Bigger orbs devour smaller ones.`, 'sys');
@@ -74,12 +81,15 @@ net.on('s', (m) => {
   voidPhase = m.vp;
   m.sa?.forEach((s) => world.addShard(s));
   m.sr?.forEach((id) => world.removeShard(id));
+  m.pa?.forEach((u) => world.addPowerup(u));
+  m.pr?.forEach((id) => world.removePowerup(id));
   m.ev?.forEach(onEvent);
 });
 const nearSelf = (x, z) => me && Math.hypot(x - me.x, z - me.z) < 45;
 function onEvent(e) {
   const mine = e.id === world.selfId;
   switch (e.k) {
+    case 'pu': if (mine) { sfx.spawn(); world.shake += 0.5; } break;
     case 'pick': if (mine) sfx.pick(e.sk); break;
     case 'dash': if (mine) sfx.dash(); break;
     case 'pulse': {
@@ -97,7 +107,25 @@ function onEvent(e) {
     case 'spawn': world.burst(e.x, 0.5, e.z, 0x35f0ff, 30, 6, 0.5, 0.8); if (mine) sfx.spawn(); break;
   }
 }
-net.on('you', (m) => { you = m; $('#dead').hidden = m.alive; });
+net.on('meta', (m) => { names.set(m.p.id, m.p); world.setHue(m.p.id, m.p.hue); });
+const FX = { speed: ['⚡ SPEED', '#b6ff3d'], shield: ['🛡 SHIELD', '#35f0ff'], magnet: ['🧲 MAGNET', '#b44dff'] };
+net.on('you', (m) => {
+  you = m; $('#dead').hidden = m.alive;
+  $('#fx').textContent = '';
+  for (const [k, v] of Object.entries(m.fx || {})) if (v > 0) {
+    const d = document.createElement('div'); d.style.borderColor = FX[k][1]; d.style.color = FX[k][1]; d.textContent = `${FX[k][0]} ${v.toFixed(0)}s`; $('#fx').appendChild(d);
+  }
+  const rb = $('#rushBar'); rb.hidden = !(m.rush > 0); if (m.rush > 0) rb.textContent = `✨ GOLDEN RUSH ${Math.ceil(m.rush)}s`;
+});
+function buildColors(cur) {
+  const box = $('#colors'); box.textContent = '';
+  for (let h = 0; h < 360; h += 30) {
+    const b = document.createElement('button'); b.style.background = `hsl(${h} 85% 55%)`;
+    b.onclick = () => { net.send({ t: 'hue', hue: h }); box.hidden = true; };
+    box.appendChild(b);
+  }
+}
+$('#colorBtn').onclick = () => { $('#colors').hidden = !$('#colors').hidden; };
 net.on('lb', (m) => {
   const list = $('#lbList'); list.textContent = '';
   m.lb.forEach(([id, name, mass], i) => {

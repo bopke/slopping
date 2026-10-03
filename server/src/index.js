@@ -76,6 +76,7 @@ wss.on('connection', (ws, req) => {
         if (!NAME_RE.test(name)) return send({ t: 'check', name, valid: false });
         return send({ t: 'check', name, valid: true, exists: Accounts.exists(name) });
       }
+      if (msg.t === 'hall') return send({ t: 'hall', hall: Accounts.top().slice(0, 5) });
       if (msg.t === 'login' || msg.t === 'register') return authenticate(msg);
       return;
     }
@@ -112,7 +113,7 @@ wss.on('connection', (ws, req) => {
     const existing = game.byKey.get(row.key);
     if (existing) hooks.kick(existing, 'Logged in from another place');
 
-    player = game.addPlayer({ name: row.name, ws, ip, admin: isAdminRow(row) });
+    player = game.addPlayer({ name: row.name, ws, ip, admin: isAdminRow(row), hue: row.hue });
     player.muted = !!row.muted;
     send(game.welcome(player));
     game.system(`${player.name} joined the arena`);

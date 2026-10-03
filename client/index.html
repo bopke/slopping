@@ -31,6 +31,7 @@
           <button type="submit" id="go2">Play</button>
         </div>
       </div>
+      <div id="hall"></div>
       <p id="authErr" class="err"></p>
       <p id="conn" class="hint">connecting…</p>
     </form>
@@ -56,6 +57,10 @@
       <div id="chatLog"></div>
       <input id="chatInput" maxlength="140" placeholder="press Enter to chat" autocomplete="off" />
     </div>
+    <div id="fx"></div>
+    <div id="rushBar" hidden>✨ GOLDEN RUSH</div>
+    <button id="colorBtn" title="Change color">🎨</button>
+    <div id="colors" hidden></div>
     <div id="banner"></div>
     <div id="dead" hidden>YOU WERE DEVOURED</div>
     <button id="adminBtn" hidden>ADMIN</button>
@@ -90,6 +95,7 @@
         <div class="f"><label>Set mass</label><input id="aMass" type="number" value="100" /><button id="aMassGo">Set</button></div>
         <div class="f"><label>Teleport</label><input id="aTx" type="number" placeholder="x" /><input id="aTz" type="number" placeholder="z" /><button id="aTpGo">Go</button></div>
         <div class="f"><label>Teleport to player</label><input id="aTo" placeholder="nickname" /><button id="aToGo">Go</button></div>
+        <div class="btns"><span>Give:</span><button data-pu="speed">⚡ Speed</button><button data-pu="shield">🛡 Shield</button><button data-pu="magnet">🧲 Magnet</button><span>Spawn pickup:</span><button data-pup="speed">⚡</button><button data-pup="shield">🛡</button><button data-pup="magnet">🧲</button></div>
         <div class="f"><label>Shards at target</label><input id="aShN" type="number" value="30" /><button id="aShGo">Spawn</button><button id="aShGold">Gold</button></div>
       </div>
     </section>
@@ -97,6 +103,7 @@
     <section data-tab="server" hidden>
       <div class="btns">
         <button id="aVoid">Start Void</button><button id="aVoidEnd">End Void</button>
+        <button id="aRush">Golden Rush</button><button id="aRushEnd">End Rush</button>
         <button id="aClear">Clear shards</button><button id="aSpawn">+50 shards</button>
         <button id="aResetSet">Reset settings</button><button id="aResetStats" class="danger">Reset all stats</button>
       </div>

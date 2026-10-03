@@ -24,11 +24,14 @@ db.exec(`
   );
 `);
 
+try { db.exec('ALTER TABLE players ADD COLUMN hue INTEGER'); } catch {}
+
 const q = {
   get: db.prepare('SELECT * FROM players WHERE key = ?'),
   insert: db.prepare(
     'INSERT INTO players (key,name,salt,hash,is_admin,created_at,last_seen) VALUES (?,?,?,?,?,?,?)',
   ),
+  setHue: db.prepare('UPDATE players SET hue=? WHERE key=?'),
   setPw: db.prepare('UPDATE players SET salt=?, hash=? WHERE key=?'),
   seen: db.prepare('UPDATE players SET last_seen=? WHERE key=?'),
   ban: db.prepare('UPDATE players SET banned=? WHERE key=?'),
@@ -42,7 +45,7 @@ const q = {
     'SELECT key,name,is_admin,banned,muted,best_mass,kills,deaths,created_at,last_seen FROM players ORDER BY last_seen DESC LIMIT 500',
   ),
   top: db.prepare(
-    'SELECT name,best_mass,kills FROM players WHERE banned IS NULL ORDER BY best_mass DESC LIMIT 10',
+    'SELECT name,best_mass,kills FROM players WHERE banned IS NULL AND best_mass > 0 ORDER BY best_mass DESC LIMIT 10',
   ),
   resetStats: db.prepare('UPDATE players SET best_mass=0, kills=0, deaths=0'),
 };
@@ -70,6 +73,7 @@ export const Accounts = {
     const salt = randomBytes(16).toString('hex');
     return q.setPw.run(salt, hashPw(password, salt), keyOf(name)).changes > 0;
   },
+  setHue: (name, h) => q.setHue.run(h, keyOf(name)),
   touch: (name) => q.seen.run(Date.now(), keyOf(name)),
   setBan: (name, reason) => q.ban.run(reason, keyOf(name)).changes > 0,
   setMuted: (name, v) => q.mute.run(v ? 1 : 0, keyOf(name)).changes > 0,

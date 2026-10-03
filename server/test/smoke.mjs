@@ -51,12 +51,21 @@ try {
   await sleep(200);
   assert.ok(!a2.msgs.some((m) => m.t === 'admin_result'));
 
+  // hue persistence + meta broadcast
+  a2.send({ t: 'hue', hue: 120 });
+  assert.equal((await a2.wait((m) => m.t === 'meta')).p.hue, 120);
+
   // admin
   const b = await client();
   b.send({ t: 'register', name: 'Bopke', password: 'adminpw' });
   assert.equal((await b.wait((m) => m.t === 'welcome')).admin, true);
   b.send({ t: 'admin', cmd: 'setmass', target: 'alice', value: 100 });
   assert.equal((await b.wait((m) => m.t === 'admin_result')).ok, true);
+  b.send({ t: 'admin', cmd: 'powerup', target: 'alice', type: 'shield' });
+  await b.wait((m) => m.t === 'admin_result' && /shield/.test(m.msg));
+  await a2.wait((m) => m.t === 'you' && m.fx?.shield > 0);
+  b.send({ t: 'admin', cmd: 'rush' });
+  await a2.wait((m) => m.t === 'announce' && /RUSH/.test(m.text));
   b.send({ t: 'admin', cmd: 'broadcast', text: 'hello' });
   await a2.wait((m) => m.t === 'announce');
   b.send({ t: 'admin', cmd: 'ban', target: 'alice', reason: 'test' });

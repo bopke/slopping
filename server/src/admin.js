@@ -7,7 +7,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const SETTING_LIMITS = {
   arenaRadius: [30, 200], maxShards: [0, 600], speed: [3, 40], dashPower: [0, 120],
   dashCooldown: [0, 30], pulseCooldown: [0, 60], absorbRatio: [1.01, 5], pvp: 'bool',
-  voidEnabled: 'bool', voidInterval: [10, 3600], minPlayers: [0, 40], massDecay: [0, 0.2], shardRate: [0, 20],
+  voidEnabled: 'bool', powerupMax: [0, 20], rushInterval: [0, 3600], voidInterval: [10, 3600], minPlayers: [0, 40], massDecay: [0, 0.2], shardRate: [0, 20],
 };
 
 export function adminState(game, startedAt) {
@@ -118,6 +118,16 @@ export function runAdmin(game, admin, msg, hooks) {
       if (!text) return reply(false, 'Empty message');
       game.broadcast({ t: 'announce', text }); reply(true, 'Sent'); break;
     }
+    case 'powerup': {
+      const type = ['speed', 'shield', 'magnet'].includes(msg.type) ? msg.type : null;
+      if (!type) return reply(false, 'Unknown powerup');
+      if (msg.target) { if (!(p = target())) return; game.giveFx(p, type); reply(true, `${type} given to ${p.name}`); }
+      else { const [x, z] = game.randomPoint(); game.addPowerup(x, z, type); reply(true, `${type} pickup spawned`); }
+      break;
+    }
+    case 'rush':
+      if (msg.action === 'end') game.rush.t = 0.01; else game.startRush(clamp(num(msg.secs, 20), 5, 120));
+      reply(true, 'Golden Rush toggled'); break;
     case 'void':
       if (msg.action === 'end') game.endVoid(); else game.startVoid();
       reply(true, `Void ${msg.action === 'end' ? 'ended' : 'started'}`); break;

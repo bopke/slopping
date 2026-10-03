@@ -14,6 +14,10 @@ export class AdminPanel {
     $('#aToGo').onclick = () => this.targetCmd('teleport', { to: v('#aTo') });
     $('#aShGo').onclick = () => net.admin('spawnshards', { count: +v('#aShN'), target: this.target });
     $('#aShGold').onclick = () => net.admin('spawnshards', { count: +v('#aShN'), target: this.target, gold: true });
+    for (const b of this.el.querySelectorAll('[data-pu]')) b.onclick = () => this.targetCmd('powerup', { type: b.dataset.pu });
+    for (const b of this.el.querySelectorAll('[data-pup]')) b.onclick = () => net.admin('powerup', { type: b.dataset.pup });
+    $('#aRush').onclick = () => net.admin('rush', { action: 'start' });
+    $('#aRushEnd').onclick = () => net.admin('rush', { action: 'end' });
     $('#aVoid').onclick = () => net.admin('void', { action: 'start' });
     $('#aVoidEnd').onclick = () => net.admin('void', { action: 'end' });
     $('#aClear').onclick = () => net.admin('clearshards');

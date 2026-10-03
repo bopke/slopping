@@ -19,10 +19,15 @@ export const DEFAULT_SETTINGS = {
   minPlayers: 6, // bots fill the arena up to this many players
   massDecay: 0.015,
   shardRate: 1, // shard spawn speed multiplier
+  powerupMax: 4,
+  rushInterval: 150, // seconds between Golden Rush events (0 = off)
 };
 
+const PU_TYPES = ['speed', 'shield', 'magnet'];
+const PU_TIME = { speed: 8, shield: 6, magnet: 12 };
 const rnd = (a, b) => a + Math.random() * (b - a);
 const radiusOf = (m) => 0.4 + 0.35 * Math.sqrt(m);
+const safe = (p) => p.prot > 0 || p.fx.shield > 0;
 const r2 = (n) => Math.round(n * 100) / 100;
 
 export class Game {
@@ -30,6 +35,9 @@ export class Game {
     this.players = new Map(); // id -> player
     this.byKey = new Map(); // nickname key -> human player
     this.shards = new Map();
+    this.powerups = new Map();
+    this.nextPu = 1; this.puAdds = []; this.puRems = [];
+    this.rush = { t: 0, next: 150 }; this.puTimer = 3;
     this.settings = { ...DEFAULT_SETTINGS };
     this.nextId = 1;
     this.nextShard = 1;
@@ -51,10 +59,10 @@ export class Game {
     return h;
   }
 
-  addPlayer({ name, ws, admin, ip, bot = false }) {
+  addPlayer({ name, ws, admin, ip, bot = false, hue = null }) {
     const p = {
       id: this.nextId++, name, ws, ip, bot, admin: !!admin,
-      hue: this.hue(name), x: 0, z: 0, vx: 0, vz: 0, mass: START_MASS, score: 0,
+      hue: hue ?? this.hue(name), fx: { speed: 0, shield: 0, magnet: 0 }, x: 0, z: 0, vx: 0, vz: 0, mass: START_MASS, score: 0,
       alive: false, ix: 0, iz: 0, dashT: 0, dashCd: 0, pulseCd: 0, prot: 0,
       respawnAt: 0, god: false, frozen: false, muted: false,
       kills: 0, peak: START_MASS, dashHits: new Set(), ai: { tx: 0, tz: 0, t: 0 },
@@ -94,7 +102,7 @@ export class Game {
     p.x = Math.cos(a) * d; p.z = Math.sin(a) * d;
     p.vx = p.vz = 0;
     p.mass = START_MASS; p.score = 0; p.alive = true; p.prot = 2.5; p.dashT = 0;
-    p.dashCd = 0; p.pulseCd = 0; p.peak = Math.max(p.peak, START_MASS);
+    p.fx.speed = p.fx.shield = p.fx.magnet = 0; p.dashCd = 0; p.pulseCd = 0; p.peak = Math.max(p.peak, START_MASS);
     this.events.push({ k: 'spawn', id: p.id, x: r2(p.x), z: r2(p.z) });
   }
 
@@ -153,6 +161,13 @@ export class Game {
       case 'dash': return this.dash(p);
       case 'pulse': return this.pulse(p);
       case 'chat': return this.chat(p, msg.text);
+      case 'hue': {
+        const h = Math.round(+msg.hue);
+        if (!(h >= 0 && h < 360) || p.bot) return;
+        p.hue = h; Accounts.setHue(p.name, h);
+        this.broadcast({ t: 'meta', p: this.meta(p) });
+        break;
+      }
       case 'ping': p.ws?.send(JSON.stringify({ t: 'pong', c: msg.c })); break;
     }
   }
@@ -173,7 +188,7 @@ export class Game {
     p.mass -= p.mass * 0.03;
     const R = 14 + radiusOf(p.mass);
     for (const o of this.players.values()) {
-      if (o === p || !o.alive || o.prot > 0 || !this.settings.pvp) continue;
+      if (o === p || !o.alive || safe(o) || !this.settings.pvp) continue;
       const dx = o.x - p.x, dz = o.z - p.z, d = Math.hypot(dx, dz) || 0.01;
       if (d < R) {
         const f = (1 - d / R) * 55 * Math.min(2, Math.sqrt(START_MASS / o.mass) * 1.5);
@@ -231,6 +246,9 @@ export class Game {
       for (let i = 0; i < n; i++) { const [x, z] = this.randomPoint(); this.addShard(x, z); }
     }
 
+    this.updatePowerups(dt);
+    this.updateRush(dt);
+
     const list = [...this.players.values()];
     for (const p of list) {
       if (!p.alive) {
@@ -245,7 +263,7 @@ export class Game {
     // pickups
     for (const p of list) {
       if (!p.alive) continue;
-      const r = radiusOf(p.mass) + 0.7;
+      const r = radiusOf(p.mass) + 0.7 + (p.fx.magnet > 0 ? 9 : 0);
       for (const s of this.shards.values()) {
         const dx = s.x - p.x, dz = s.z - p.z;
         if (dx * dx + dz * dz < r * r) {
@@ -256,10 +274,58 @@ export class Game {
           this.events.push({ k: 'pick', id: p.id, sk: s.k });
         }
       }
+      for (const u of this.powerups.values()) {
+        const dx = u.x - p.x, dz = u.z - p.z, rr = radiusOf(p.mass) + 1.2;
+        if (dx * dx + dz * dz < rr * rr) {
+          this.giveFx(p, u.type);
+          this.removePowerup(u.id);
+          this.events.push({ k: 'pu', id: p.id, type: u.type });
+        }
+      }
       if (p.mass > p.peak) p.peak = p.mass;
     }
 
     this.broadcastSnapshot(dt);
+  }
+
+  giveFx(p, type) {
+    p.fx[type] = PU_TIME[type];
+    if (!p.bot) this.tell(p, `${type.toUpperCase()} activated (${PU_TIME[type]}s)`);
+  }
+
+  addPowerup(x, z, type = PU_TYPES[Math.floor(Math.random() * PU_TYPES.length)]) {
+    const u = { id: this.nextPu++, x, z, type };
+    this.powerups.set(u.id, u);
+    this.puAdds.push([u.id, r2(x), r2(z), type]);
+    return u;
+  }
+  removePowerup(id) { if (this.powerups.delete(id)) this.puRems.push(id); }
+
+  updatePowerups(dt) {
+    this.puTimer -= dt;
+    if (this.puTimer <= 0) {
+      this.puTimer = 6 + Math.random() * 6;
+      if (this.powerups.size < this.settings.powerupMax) { const [x, z] = this.randomPoint(this.voidRadius * 0.8); this.addPowerup(x, z); }
+    }
+  }
+
+  startRush(secs = 20) {
+    this.rush.t = secs;
+    this.broadcast({ t: 'announce', text: '✨ GOLDEN RUSH — gold shards are raining!' });
+  }
+  updateRush(dt) {
+    const S = this.settings, R = this.rush;
+    if (R.t > 0) {
+      R.t -= dt;
+      if (this.shards.size < S.maxShards + 250) {
+        const n = Math.ceil(dt * 14 + Math.random());
+        for (let i = 0; i < n; i++) { const [x, z] = this.randomPoint(this.voidRadius * 0.95); this.addShard(x, z, 1); }
+      }
+      if (R.t <= 0) { R.next = S.rushInterval; this.system('Golden Rush is over.'); }
+    } else if (S.rushInterval > 0) {
+      R.next -= dt;
+      if (R.next <= 0) this.startRush();
+    }
   }
 
   move(p, dt) {
@@ -268,8 +334,9 @@ export class Game {
     if (p.dashCd > 0) p.dashCd -= dt;
     if (p.pulseCd > 0) p.pulseCd -= dt;
     if (p.dashT > 0) p.dashT -= dt;
+    for (const k in p.fx) if (p.fx[k] > 0) p.fx[k] -= dt;
     const slow = Math.pow(p.mass / START_MASS, -0.12);
-    const sp = p.frozen ? 0 : S.speed * slow;
+    const sp = p.frozen ? 0 : S.speed * slow * (p.fx.speed > 0 ? 1.6 : 1);
     const tx = p.ix * sp, tz = p.iz * sp;
     const k = Math.exp(-5 * dt);
     p.vx = tx + (p.vx - tx) * k; p.vz = tz + (p.vz - tz) * k;
@@ -288,7 +355,7 @@ export class Game {
       if (vn > 0) { p.vx -= 1.6 * vn * nx; p.vz -= 1.6 * vn * nz; }
     }
     // void damage
-    if (this.voidRadius < R && d > this.voidRadius && !p.god && p.prot <= 0) {
+    if (this.voidRadius < R && d > this.voidRadius && !p.god && !safe(p)) {
       p.mass -= (3 + p.mass * 0.12) * dt;
       if (p.mass < 4) this.kill(p, null, 'void');
     }
@@ -306,7 +373,7 @@ export class Game {
         const dx = b.x - a.x, dz = b.z - a.z;
         const d = Math.hypot(dx, dz);
         if (d >= ra + rb) continue;
-        if (!S.pvp || a.prot > 0 || b.prot > 0) { this.separate(a, b, dx, dz, d, ra, rb, 0.5); continue; }
+        if (!S.pvp || safe(a) || safe(b)) { this.separate(a, b, dx, dz, d, ra, rb, 0.5); continue; }
         const [big, small] = a.mass >= b.mass ? [a, b] : [b, a];
         const rbig = big === a ? ra : rb, rsmall = big === a ? rb : ra;
         if (big.mass >= small.mass * S.absorbRatio && d < rbig - rsmall * 0.25 && !small.god) {
@@ -411,14 +478,16 @@ export class Game {
     const ps = [];
     for (const p of this.players.values()) {
       if (!p.alive) continue;
-      const flags = 1 | (p.dashT > 0 ? 2 : 0) | (p.god ? 4 : 0) | (p.frozen ? 8 : 0) | (p.prot > 0 ? 16 : 0);
+      const flags = 1 | (p.dashT > 0 ? 2 : 0) | (p.god ? 4 : 0) | (p.frozen ? 8 : 0) | (safe(p) ? 16 : 0) | (p.fx.speed > 0 ? 32 : 0) | (p.fx.magnet > 0 ? 64 : 0);
       ps.push([p.id, r2(p.x), r2(p.z), r2(p.mass), r2(p.vx), r2(p.vz), flags]);
     }
     const msg = { t: 's', n: this.tickNo, p: ps, v: r2(this.voidRadius), vp: this.void.phase };
     if (this.shardAdds.length) msg.sa = this.shardAdds;
     if (this.shardRems.length) msg.sr = this.shardRems;
+    if (this.puAdds.length) msg.pa = this.puAdds;
+    if (this.puRems.length) msg.pr = this.puRems;
     if (this.events.length) msg.ev = this.events;
-    this.shardAdds = []; this.shardRems = []; this.events = [];
+    this.puAdds = []; this.puRems = []; this.shardAdds = []; this.shardRems = []; this.events = [];
     const s = JSON.stringify(msg);
     const doYou = this.tickNo % 4 === 0;
     for (const p of this.players.values()) {
@@ -429,6 +498,7 @@ export class Game {
           t: 'you', alive: p.alive, mass: r2(p.mass), score: p.score,
           dash: r2(Math.max(0, p.dashCd)), dashMax: this.settings.dashCooldown,
           pulse: r2(Math.max(0, p.pulseCd)), pulseMax: this.settings.pulseCooldown,
+          fx: { speed: r2(Math.max(0, p.fx.speed)), shield: r2(Math.max(0, p.fx.shield)), magnet: r2(Math.max(0, p.fx.magnet)) }, rush: r2(Math.max(0, this.rush.t)),
         });
       }
     }
@@ -448,6 +518,8 @@ export class Game {
       settings: this.settings, tickRate: config.tickRate,
       players: [...this.players.values()].map((o) => this.meta(o)),
       shards: [...this.shards.values()].map((s) => [s.id, r2(s.x), r2(s.z), s.k]),
+      powerups: [...this.powerups.values()].map((u) => [u.id, r2(u.x), r2(u.z), u.type]),
+      hue: p.hue,
       hall: Accounts.top(),
     };
   }
