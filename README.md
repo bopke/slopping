@@ -8,6 +8,12 @@ A real-time multiplayer 3D arena in the browser. You are a glowing orb: collect 
 * **Accounts** – type a nickname. Known? asked for the password. New? pick a password, done (scrypt-hashed).
 * **Admin** – the nickname `bopke` (configurable) gets an in-game **ADMIN** panel.
 
+## Features
+* Power-ups (⚡ speed, 🛡 shield, 🧲 magnet), random **Golden Rush** gold-shard storms, the shrinking **Void**
+* Persistent accounts with best mass / kills / deaths, hall of fame on the login screen, `Tab` = your profile
+* Pick your orb color (🎨, saved to your account), remember-me sessions and automatic reconnect
+* Bots keep the arena lively even when you're alone
+
 ## Controls
 `WASD`/arrows or hold the mouse = move · `Space` = dash · `E`/right-click = pulse · `Enter` = chat · `M` = mute · `` ` `` = admin panel.
 Touch devices get a joystick and buttons.

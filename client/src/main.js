@@ -23,9 +23,27 @@ net.on('hall', (m) => {
   const t = document.createElement('div'); t.className = 'hallT'; t.textContent = 'HALL OF FAME'; h.appendChild(t);
   m.hall.forEach((e, i) => { const d = document.createElement('div'); d.textContent = `${i + 1}. ${e.name} — ${Math.round(e.best_mass)} mass, ${e.kills} kills`; h.appendChild(d); });
 });
-net.connect().then(() => { net.send({ t: 'hall' }); $('#conn').textContent = 'connected'; setTimeout(() => ($('#conn').textContent = ''), 1200); })
+let reconnecting = false, wantRetry = false;
+async function connectAndResume() {
+  await net.connect();
+  net.send({ t: 'hall' });
+  const n = localStorage.getItem('nick'), tk = localStorage.getItem('token');
+  if (n && tk) { pending = true; net.send({ t: 'resume', name: n, token: tk }); }
+}
+connectAndResume().then(() => { $('#conn').textContent = 'connected'; setTimeout(() => ($('#conn').textContent = ''), 1200); })
   .catch(() => { $('#conn').textContent = 'Cannot reach the game server. Is it running?'; });
-net.on('close', () => { if (!$('#hud').hidden) { $('#login').hidden = false; $('#hud').hidden = true; $('#step1').hidden = false; $('#step2').hidden = true; setErr('Disconnected from server — reload to reconnect'); $('#go1').disabled = true; } });
+net.on('close', async () => {
+  if (reconnecting) return;
+  const had = !$('#hud').hidden;
+  if (had) { $('#hud').hidden = true; $('#login').hidden = false; $('#step1').hidden = false; $('#step2').hidden = true; }
+  if (!wantRetry && !had) return;
+  reconnecting = true; $('#conn').textContent = 'Connection lost — reconnecting…';
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 2000));
+    try { await connectAndResume(); break; } catch {}
+  }
+  reconnecting = false; $('#conn').textContent = '';
+});
 
 $('#loginForm').addEventListener('submit', async (e) => {
   e.preventDefault(); sfx.unlock(); setErr();
@@ -49,10 +67,11 @@ $('#loginForm').addEventListener('submit', async (e) => {
 });
 $('#back').onclick = () => { $('#step2').hidden = true; $('#step1').hidden = false; setErr(); nick.focus(); };
 
-net.on('auth_error', (m) => { pending = false; setErr(m.error); pw.select(); });
+net.on('auth_error', (m) => { pending = false; if (m.error.startsWith('Session expired')) { localStorage.removeItem('token'); return; } setErr(m.error); pw.select(); });
 net.on('welcome', (m) => {
   pending = false;
-  localStorage.setItem('nick', m.name);
+  localStorage.setItem('nick', m.name); if (m.token) localStorage.setItem('token', m.token); wantRetry = true;
+  world.reset();
   $('#login').hidden = true; $('#hud').hidden = false;
   world.selfId = m.id; settings = m.settings; arena = settings.arenaRadius; world.setArena(arena);
   names.clear(); m.players.forEach((p) => { names.set(p.id, p); world.addPlayer(p); });
@@ -70,7 +89,7 @@ function setAdmin(on) {
   world.isAdmin = on;
 }
 net.on('role', (m) => setAdmin(m.admin));
-net.on('kicked', (m) => { $('#hud').hidden = true; $('#login').hidden = false; $('#step1').hidden = false; $('#step2').hidden = true; setErr(m.reason); });
+net.on('kicked', (m) => { wantRetry = false; if (/another place|banned|deleted/.test(m.reason)) localStorage.removeItem('token'); $('#hud').hidden = true; $('#login').hidden = false; $('#step1').hidden = false; $('#step2').hidden = true; setErr(m.reason); });
 net.on('settings', (m) => { settings = m.settings; arena = settings.arenaRadius; world.setArena(arena); });
 
 // ---------------- world messages ----------------
@@ -176,14 +195,22 @@ addEventListener('keydown', (e) => {
   if (k === 'm') { addChat(null, sfx.toggle() ? 'Sound off' : 'Sound on', 'sys'); return; }
   if (k === ' ') { e.preventDefault(); net.send({ t: 'dash' }); sfx.unlock(); }
   if (k === 'e') net.send({ t: 'pulse' });
+  if (k === 'tab') { e.preventDefault(); if (e.repeat) return; net.send({ t: 'profile' }); }
   keys.add(k);
 });
-addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); if (e.key === 'Tab') $('#profile').hidden = true; });
 addEventListener('blur', () => { keys.clear(); mouseDown = false; });
 $('#scene').addEventListener('pointerdown', (e) => { sfx.unlock(); if (e.pointerType === 'touch') return; if (e.button === 2) { net.send({ t: 'pulse' }); return; } mouseDown = true; mouseX = e.clientX; mouseY = e.clientY; });
 addEventListener('pointermove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
 addEventListener('pointerup', () => (mouseDown = false));
 $('#scene').addEventListener('contextmenu', (e) => e.preventDefault());
+$('#logoutBtn').onclick = () => { wantRetry = false; localStorage.removeItem('token'); net.send({ t: 'logout' }); setTimeout(() => location.reload(), 150); };
+net.on('profile', (m) => {
+  const p = $('#profile'); p.hidden = false;
+  p.innerHTML = '';
+  const rows = [['Player', $('#myName').textContent], ['Best mass', m.best], ['Kills', m.kills], ['Deaths', m.deaths], ['All-time rank', '#' + m.rank], ['Member since', new Date(m.since).toLocaleDateString()]];
+  for (const [k, v] of rows) { const d = document.createElement('div'); d.append(k + ': ', Object.assign(document.createElement('b'), { textContent: v })); p.appendChild(d); }
+});
 $('#adminBtn').onclick = () => admin?.toggle();
 
 // touch joystick

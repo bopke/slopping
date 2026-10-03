@@ -100,6 +100,7 @@ export class World {
     this.shards = new Map();
     this.tmpM = new THREE.Matrix4(); this.tmpQ = new THREE.Quaternion(); this.tmpP = new THREE.Vector3(); this.tmpS = new THREE.Vector3(); this.tmpC = new THREE.Color();
   }
+  reset() { for (const id of [...this.players.keys()]) this.removePlayer(id); for (const id of [...this.powerups.keys()]) this.removePowerup(id); this.shards.clear(); this.voidR = undefined; }
   setShards(list) { this.shards.clear(); list.forEach((s) => this.addShard(s)); }
   addShard([id, x, z, k]) { this.shards.set(id, { x, z, k, born: performance.now() / 1000 }); }
   removeShard(id, by) {

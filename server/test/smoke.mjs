@@ -51,6 +51,15 @@ try {
   await sleep(200);
   assert.ok(!a2.msgs.some((m) => m.t === 'admin_result'));
 
+  // token resume + profile
+  const tok = (await a2.wait((m) => m.t === 'welcome')).token;
+  assert.ok(tok);
+  a2.send({ t: 'profile' });
+  assert.equal((await a2.wait((m) => m.t === 'profile')).rank >= 1, true);
+  const r = await client();
+  r.send({ t: 'resume', name: 'alice', token: 'bad' });
+  await r.wait((m) => m.t === 'auth_error');
+
   // hue persistence + meta broadcast
   a2.send({ t: 'hue', hue: 120 });
   assert.equal((await a2.wait((m) => m.t === 'meta')).p.hue, 120);

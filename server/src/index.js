@@ -77,10 +77,15 @@ wss.on('connection', (ws, req) => {
         return send({ t: 'check', name, valid: true, exists: Accounts.exists(name) });
       }
       if (msg.t === 'hall') return send({ t: 'hall', hall: Accounts.top().slice(0, 5) });
-      if (msg.t === 'login' || msg.t === 'register') return authenticate(msg);
+      if (msg.t === 'login' || msg.t === 'resume' || msg.t === 'register') return authenticate(msg);
       return;
     }
     if (!game.players.has(player.id)) return;
+    if (msg.t === 'logout') { Accounts.revokeToken(player.name); return ws.close(); }
+    if (msg.t === 'profile') {
+      const r = Accounts.get(player.name);
+      return send({ t: 'profile', best: Math.round(r.best_mass), kills: r.kills, deaths: r.deaths, since: r.created_at, rank: Accounts.rankOf(r.key) });
+    }
 
     if (msg.t === 'admin') {
       if (!player.admin) return;
@@ -92,14 +97,20 @@ wss.on('connection', (ws, req) => {
 
   function authenticate(msg) {
     const name = String(msg.name ?? ''), password = String(msg.password ?? '');
+    const resume = msg.t === 'resume';
     if (!NAME_RE.test(name)) return authErr('Nickname must be 2-16 characters: letters, digits, _ or -');
-    if (password.length < 4 || password.length > 72) return authErr('Password must be 4-72 characters');
+    if (!resume && (password.length < 4 || password.length > 72)) return authErr('Password must be 4-72 characters');
     if (locked(failsByIp, ip) || locked(failsByName, keyOf(name))) return authErr('Too many attempts, wait a bit and retry');
 
     let row = Accounts.get(name);
     if (msg.t === 'register') {
       if (row) return authErr('That nickname was just taken, please log in');
       row = Accounts.create(name, password, config.adminNicks.includes(keyOf(name)));
+    } else if (resume) {
+      if (!row || !Accounts.verifyToken(row, msg.token)) {
+        fail(failsByIp, ip, 10, 60000);
+        return authErr('Session expired, please log in');
+      }
     } else {
       if (!row) return authErr('Unknown nickname');
       if (!Accounts.verify(row, password)) {
@@ -115,7 +126,7 @@ wss.on('connection', (ws, req) => {
 
     player = game.addPlayer({ name: row.name, ws, ip, admin: isAdminRow(row), hue: row.hue });
     player.muted = !!row.muted;
-    send(game.welcome(player));
+    send({ ...game.welcome(player), token: resume ? msg.token : Accounts.issueToken(row.name) });
     game.system(`${player.name} joined the arena`);
   }
 

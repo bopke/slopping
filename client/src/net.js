@@ -14,7 +14,7 @@ export class Net {
       const ws = (this.ws = new WebSocket(serverUrl()));
       ws.onopen = () => { resolve(); this.pingLoop = setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000); };
       ws.onerror = () => reject(new Error('Cannot reach server'));
-      ws.onclose = (e) => { clearInterval(this.pingLoop); this.handlers.close?.(e); };
+      ws.onclose = (e) => { clearInterval(this.pingLoop); if (this.ws === ws) this.handlers.close?.(e); };
       ws.onmessage = (e) => {
         let m; try { m = JSON.parse(e.data); } catch { return; }
         if (m.t === 'pong') { this.rtt = performance.now() - m.c; return; }

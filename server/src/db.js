@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { scryptSync, randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { config } from './config.js';
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
@@ -26,12 +26,15 @@ db.exec(`
 
 try { db.exec('ALTER TABLE players ADD COLUMN hue INTEGER'); } catch {}
 
+try { db.exec('ALTER TABLE players ADD COLUMN token_hash TEXT'); } catch {}
+
 const q = {
   get: db.prepare('SELECT * FROM players WHERE key = ?'),
   insert: db.prepare(
     'INSERT INTO players (key,name,salt,hash,is_admin,created_at,last_seen) VALUES (?,?,?,?,?,?,?)',
   ),
   setHue: db.prepare('UPDATE players SET hue=? WHERE key=?'),
+  setToken: db.prepare('UPDATE players SET token_hash=? WHERE key=?'),
   setPw: db.prepare('UPDATE players SET salt=?, hash=? WHERE key=?'),
   seen: db.prepare('UPDATE players SET last_seen=? WHERE key=?'),
   ban: db.prepare('UPDATE players SET banned=? WHERE key=?'),
@@ -71,9 +74,22 @@ export const Accounts = {
   },
   setPassword(name, password) {
     const salt = randomBytes(16).toString('hex');
+    q.setToken.run(null, keyOf(name));
     return q.setPw.run(salt, hashPw(password, salt), keyOf(name)).changes > 0;
   },
   setHue: (name, h) => q.setHue.run(h, keyOf(name)),
+  issueToken(name) {
+    const t = randomBytes(24).toString('hex');
+    q.setToken.run(createHash('sha256').update(t).digest('hex'), keyOf(name));
+    return t;
+  },
+  verifyToken(row, t) {
+    if (!row.token_hash || typeof t !== 'string') return false;
+    const a = Buffer.from(createHash('sha256').update(t).digest('hex')), b = Buffer.from(row.token_hash);
+    return a.length === b.length && timingSafeEqual(a, b);
+  },
+  revokeToken: (name) => q.setToken.run(null, keyOf(name)),
+  rankOf: (key) => db.prepare('SELECT COUNT(*)+1 AS r FROM players WHERE best_mass > (SELECT best_mass FROM players WHERE key=?)').get(key).r,
   touch: (name) => q.seen.run(Date.now(), keyOf(name)),
   setBan: (name, reason) => q.ban.run(reason, keyOf(name)).changes > 0,
   setMuted: (name, v) => q.mute.run(v ? 1 : 0, keyOf(name)).changes > 0,

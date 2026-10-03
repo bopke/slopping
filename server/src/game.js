@@ -343,7 +343,7 @@ export class Game {
     p.x += p.vx * dt; p.z += p.vz * dt;
 
     // mass decay towards starting mass
-    if (p.mass > START_MASS) p.mass -= (p.mass - START_MASS) * S.massDecay * dt;
+    if (p.mass > START_MASS) p.mass -= (p.mass - START_MASS) * S.massDecay * (1 + (p.mass - START_MASS) / 50) * dt;
 
     // arena wall
     const r = radiusOf(p.mass), R = S.arenaRadius;
