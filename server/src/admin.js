@@ -134,7 +134,7 @@ export function runAdmin(game, admin, msg, hooks) {
       if (msg.action === 'end') game.endVoid(); else game.startVoid();
       reply(true, `Void ${msg.action === 'end' ? 'ended' : 'started'}`); break;
     case 'set': {
-      const lim = SETTING_LIMITS[msg.key];
+      const lim = Object.hasOwn(SETTING_LIMITS, msg.key) ? SETTING_LIMITS[msg.key] : null;
       if (!lim) return reply(false, `Unknown setting ${msg.key}`);
       const v = lim === 'bool' ? !!msg.value : clamp(num(msg.value, game.settings[msg.key]), lim[0], lim[1]);
       game.settings[msg.key] = v;

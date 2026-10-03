@@ -61,6 +61,11 @@ try {
   r.send({ t: 'resume', name: 'alice', token: 'bad' });
   await r.wait((m) => m.t === 'auth_error');
 
+  // reserved bot nickname
+  const rb = await client();
+  rb.send({ t: 'register', name: 'Zorp', password: 'whatever' });
+  assert.match((await rb.wait((m) => m.t === 'auth_error')).error, /reserved/);
+
   // hue persistence + meta broadcast
   a2.send({ t: 'hue', hue: 120 });
   assert.equal((await a2.wait((m) => m.t === 'meta')).p.hue, 120);
@@ -74,6 +79,8 @@ try {
   b.send({ t: 'admin', cmd: 'powerup', target: 'alice', type: 'shield' });
   await b.wait((m) => m.t === 'admin_result' && /shield/.test(m.msg));
   await a2.wait((m) => m.t === 'you' && m.fx?.shield > 0);
+  b.send({ t: 'admin', cmd: 'set', key: 'constructor', value: 1 });
+  assert.equal((await b.wait((m) => m.t === 'admin_result' && /Unknown setting/.test(m.msg))).ok, false);
   b.send({ t: 'admin', cmd: 'rush' });
   await a2.wait((m) => m.t === 'announce' && /RUSH/.test(m.text));
   b.send({ t: 'admin', cmd: 'broadcast', text: 'hello' });

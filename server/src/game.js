@@ -1,7 +1,7 @@
 import { Accounts } from './db.js';
 import { config } from './config.js';
 
-const BOT_NAMES = ['Zorp', 'Blinky', 'Nova', 'Quasar', 'Pixel', 'Muffin', 'Glitch', 'Orbit', 'Wobble', 'Sprocket', 'Comet', 'Bleep'];
+export const BOT_NAMES = ['Zorp', 'Blinky', 'Nova', 'Quasar', 'Pixel', 'Muffin', 'Glitch', 'Orbit', 'Wobble', 'Sprocket', 'Comet', 'Bleep'];
 const START_MASS = 10;
 const MAX_MASS = 500;
 

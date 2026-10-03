@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { config } from './config.js';
 import { Accounts, NAME_RE, keyOf, seedAdmin, isAdminRow } from './db.js';
-import { Game } from './game.js';
+import { Game, BOT_NAMES } from './game.js';
 import { adminState, runAdmin } from './admin.js';
 
 seedAdmin();
@@ -100,6 +100,7 @@ wss.on('connection', (ws, req) => {
     const resume = msg.t === 'resume';
     if (!NAME_RE.test(name)) return authErr('Nickname must be 2-16 characters: letters, digits, _ or -');
     if (!resume && (password.length < 4 || password.length > 72)) return authErr('Password must be 4-72 characters');
+    if (BOT_NAMES.some((b) => b.toLowerCase() === keyOf(name)) || /^bot\d+$/i.test(name)) return authErr('That nickname is reserved');
     if (locked(failsByIp, ip) || locked(failsByName, keyOf(name))) return authErr('Too many attempts, wait a bit and retry');
 
     let row = Accounts.get(name);
